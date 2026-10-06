@@ -62,10 +62,10 @@ def test_llm_alternatives_are_verified_and_bad_ones_dropped(monkeypatch):
     """Gemini proposes two alternatives: one overlapping (must be dropped),
     one valid (must be kept). The remaining slot is filled deterministically."""
     good_primary = {p["category"]: {"wall": p["side"], "offset": p["u"]}
-                    for p in place_fixtures(W, L, FIXTURES)}
-    alt_good = {p["category"]: {"wall": p["side"], "offset": p["u"]}
-                for p in place_fixtures(W, L, FIXTURES,
-                                        walls={"shower": "right", "toilet": "left", "vanity": "left"})}
+                    for p in place_fixtures(W, L, FIXTURES, strict=True)}
+    primary = place_fixtures(W, L, FIXTURES, strict=True)
+    alt = next(a for a in enumerate_layouts(W, L, FIXTURES, limit=3, exclude=[wall_signature(primary)]))
+    alt_good = {p["category"]: {"wall": p["side"], "offset": p["u"]} for p in alt}
     alt_bad = {"shower": {"wall": "left", "offset": 0}, "toilet": {"wall": "left", "offset": 0},
                "vanity": {"wall": "left", "offset": 0}}
 
@@ -112,3 +112,40 @@ def test_reasoning_counts_only_verifier_rejections():
     assert step["summary"] == ("Gemini's proposal passed verification. "
                                "1 rejected proposal(s) were caught by the verifier.")
     assert step["attempts"][1]["critique"] == "REJECTED"
+
+
+def test_options_keep_separate_clear_floor_when_the_room_allows():
+    """Regression: option C used to share clearance zones in half the rooms."""
+    from layout import shared_clearances
+    for w, l in [(96, 120), (72, 96), (84, 108), (120, 144), (96, 96), (72, 120)]:
+        opts, _, _ = ai_engine.layout_options(FIXTURES, w, l, "Japanese Zen", "", count=3)
+        assert len(opts) == 3, (w, l)
+        for o in opts:
+            assert verify_layout(o["placements"], w, l) == []
+            assert shared_clearances(o["placements"]) == [], (w, l, o["id"], o["features"])
+            assert o["features"]["clearances_shared"] is False
+
+
+def test_tight_rooms_still_get_a_layout_with_shared_clearance():
+    """Strict is a preference, not a rule: small rooms must not become infeasible."""
+    from layout import place_preferring_strict, shared_clearances
+    w, l = 66, 84
+    assert place_fixtures(w, l, FIXTURES, strict=True) is None
+    p = place_preferring_strict(w, l, FIXTURES)
+    assert p and verify_layout(p, w, l) == [] and shared_clearances(p)
+
+
+def test_model_is_asked_to_repair_shared_clearance_when_avoidable(monkeypatch):
+    from layout import shared_clearances
+    # valid (no fixture collisions) but two clearance zones overlap
+    shared = {"shower": {"wall": "top", "offset": 0}, "toilet": {"wall": "right", "offset": 30},
+              "vanity": {"wall": "top", "offset": 36}}
+    built = ai_engine._apply(shared, FIXTURES, W, L)
+    assert verify_layout(built, W, L) == [] and shared_clearances(built)
+    separate = {p["category"]: {"wall": p["side"], "offset": p["u"]}
+                for p in place_fixtures(W, L, FIXTURES, strict=True)}
+    replies = iter([shared, separate])
+    monkeypatch.setattr(ai_engine, "_generate", lambda *a, **k: next(replies))
+    placements, trace = ai_engine.arrange_with_repair(FIXTURES, W, L, "Japanese Zen", "")
+    assert trace[0]["accepted"] is False and "clearance zones overlap" in trace[0]["problems"][0]
+    assert trace[1]["accepted"] is True and shared_clearances(placements) == []

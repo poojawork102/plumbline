@@ -5,11 +5,11 @@ import OptionPicker from "../components/OptionPicker.jsx";
 import ReasoningPanel from "../components/ReasoningPanel.jsx";
 import { BillOfMaterials, Checks, Metrics } from "../components/DesignSummary.jsx";
 import Slider from "../components/Slider.jsx";
+import ReportPicker from "../components/ReportPicker.jsx";
 import { api } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import { arrangementOf, quickProblems } from "../lib/geometry.js";
 import { money } from "../lib/format.js";
-import { REPORT_DESCRIPTIONS, ROLE_LABELS } from "../lib/personas.js";
 
 export const LAST_DESIGN_KEY = "plumbline_last_design";
 
@@ -64,7 +64,6 @@ export default function Planner() {
   const [project, setProject] = useState(null);
   const [projectName, setProjectName] = useState("");
   const [saveMsg, setSaveMsg] = useState(null);
-  const [reportMsg, setReportMsg] = useState(null);
 
   useEffect(() => {
     api.config().then(setConfig).catch(() => setConfig(null));
@@ -96,16 +95,6 @@ export default function Planner() {
   useEffect(() => {
     if (design?.status === "ok") rememberDesign({ design, selected_option: option?.id, edits });
   }, [design, option?.id, edits]);
-
-  async function downloadReport() {
-    setReportMsg("Preparing PDF…");
-    try {
-      const name = await api.downloadReport(design, option?.id, edits);
-      setReportMsg(`Downloaded ${name}`);
-    } catch (e) {
-      setReportMsg(`Report failed: ${e.message}`);
-    }
-  }
 
   const room = design?.layout?.room_in
     || (design && { width: design.inputs.width_ft * 12, length: design.inputs.length_ft * 12 });
@@ -321,11 +310,7 @@ export default function Planner() {
               {saveMsg && <p className="small" role="status">{saveMsg}</p>}
 
               <h3 className="panel-title">05 · Report</h3>
-              <button type="button" className="btn block" onClick={downloadReport}>Download PDF report</button>
-              <p className="muted small">
-                {ROLE_LABELS[user?.role || "homeowner"]} report: {REPORT_DESCRIPTIONS[user?.role || "homeowner"]}
-              </p>
-              {reportMsg && <p className="small" role="status">{reportMsg}</p>}
+              <ReportPicker onDownload={(type) => api.downloadReport(design, option?.id, edits, type)} />
             </div>
           )}
         </aside>

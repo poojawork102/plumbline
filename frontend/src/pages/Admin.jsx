@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
+import ReportPicker from "../components/ReportPicker.jsx";
 import { useAuth } from "../lib/auth.jsx";
 import { money } from "../lib/format.js";
 import { ROLE_LABELS } from "../lib/personas.js";
@@ -70,7 +71,7 @@ export default function Admin() {
                 <td>
                   <div className="actions">
                   <Link className="btn small" to={`/planner?project=${p.id}`}>Inspect</Link>
-                  <button type="button" className="btn small" onClick={() => act(() => api.downloadProjectReport(p.id))}>PDF</button>
+                  <ReportPicker compact onDownload={(type) => api.downloadProjectReport(p.id, type)} />
                   {p.status === "submitted" && (
                     <>
                       <input aria-label={`Note for ${p.name}`} placeholder="Note (optional)" value={notes[p.id] || ""}

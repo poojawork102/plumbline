@@ -105,9 +105,10 @@ export const api = {
   deleteProject: (id) => request(`/api/projects/${id}`, { method: "DELETE" }),
   submitProject: (id) => request(`/api/projects/${id}/submit`, { method: "POST", body: {} }),
 
-  downloadReport: (design, selectedOption, edits) =>
-    downloadFile("/api/report", { method: "POST", body: { design, selected_option: selectedOption, edits } }),
-  downloadProjectReport: (id) => downloadFile(`/api/projects/${id}/report`),
+  downloadReport: (design, selectedOption, edits, reportType) =>
+    downloadFile("/api/report", { method: "POST", body: { design, selected_option: selectedOption, edits, report_type: reportType } }),
+  downloadProjectReport: (id, reportType) =>
+    downloadFile(`/api/projects/${id}/report${reportType ? `?type=${encodeURIComponent(reportType)}` : ""}`),
 
   adminStats: () => request("/api/admin/stats"),
   adminUsers: () => request("/api/admin/users"),

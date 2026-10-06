@@ -35,7 +35,8 @@ import time
 import concurrent.futures
 
 from layout import (_to_room, describe_layout, enumerate_layouts, layout_features,
-                    place_fixtures, verify_layout, wall_signature)
+                    place_fixtures, place_preferring_strict, shared_clearances,
+                    verify_layout, wall_signature)
 
 _CACHE = {}
 
@@ -212,6 +213,7 @@ Hard rules:
   - fixtures must not overlap each other
   - one fixture's front clearance must not land on another fixture
   - nothing in the door square
+  - clearance zones (front clear floor) should not overlap each other
   - prefer NOT to put the toilet as the first thing visible from the door
 {critique}
 Return JSON exactly like:
@@ -284,6 +286,9 @@ def arrange_with_repair(fixtures, W, L, theme, brief, door_in=30.0):
     
     cumulative_ms = 0
     MAX_TOTAL_LATENCY_MS = 15000
+    # If the room can give every fixture its own clear floor, hold the model
+    # to that too -- otherwise shared clearance is acceptable.
+    strict = place_fixtures(W, L, fixtures, strict=True) is not None
 
     for attempt in range(1 + REPAIR_ATTEMPTS):
         started = time.perf_counter()
@@ -321,6 +326,8 @@ def arrange_with_repair(fixtures, W, L, theme, brief, door_in=30.0):
             continue
 
         problems = verify_layout(placements, W, L)
+        if strict and not problems:
+            problems = shared_clearances(placements)
         arrangement = {f["category"]: {"wall": p["side"], "offset": p["u"]}
                        for f, p in zip(fixtures, placements)}
         trace.append({"attempt": attempt + 1, "source": "gemini",
@@ -354,7 +361,7 @@ def layout_with_fallback(fixtures, W, L, theme, brief):
         return placements, trace, "gemini"
 
     started = time.perf_counter()
-    placements = place_fixtures(W, L, fixtures)
+    placements = place_preferring_strict(W, L, fixtures)
     trace.append({
         "attempt": len(trace) + 1, "source": "deterministic-solver",
         "accepted": bool(placements), "ms": round((time.perf_counter() - started) * 1000, 1),
@@ -424,6 +431,7 @@ def propose_alternatives(fixtures, W, L, theme, brief, taken, n, door_in=30.0):
                       "problems": ["model did not return alternative layouts"]}]
                     if get_client() else [])
 
+    strict = place_fixtures(W, L, fixtures, strict=True) is not None
     accepted, trace, seen = [], [], set(taken)
     for i, prop in enumerate(proposals[:n + 2]):           # tolerate a few extras
         if len(accepted) >= n or not isinstance(prop, dict):
@@ -433,6 +441,8 @@ def propose_alternatives(fixtures, W, L, theme, brief, taken, n, door_in=30.0):
             problems = ["incomplete arrangement: a fixture was missing a wall/offset"]
         else:
             problems = verify_layout(placements, W, L)
+            if strict and not problems:
+                problems = shared_clearances(placements)
             if not problems and wall_signature(placements) in seen:
                 problems = ["duplicates a layout that is already an option"]
         trace.append({"attempt": i + 1, "source": "gemini", "stage": "alternatives",

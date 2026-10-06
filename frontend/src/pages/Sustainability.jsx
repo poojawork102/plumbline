@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Slider from "../components/Slider.jsx";
 import { api } from "../lib/api.js";
-import { useAuth } from "../lib/auth.jsx";
-import { REPORT_DESCRIPTIONS, ROLE_LABELS } from "../lib/personas.js";
+import ReportPicker from "../components/ReportPicker.jsx";
 import { LAST_DESIGN_KEY } from "./Planner.jsx";
 
 function lastDesign() {
@@ -16,13 +15,10 @@ function lastDesign() {
 }
 
 export default function Sustainability() {
-  const { user } = useAuth();
   const saved = useMemo(lastDesign, []);
   const [household, setHousehold] = useState(saved?.design.inputs.household || 4);
   const [sample, setSample] = useState(null);
   const [error, setError] = useState(null);
-  const [reportMsg, setReportMsg] = useState(null);
-  const role = user?.role || "homeowner";
 
   // Your own design when you have one; a sample bundle otherwise.
   useEffect(() => {
@@ -35,27 +31,16 @@ export default function Sustainability() {
   const rupees = w ? Math.round(w.saved_gal * 3.78 * 0.05) : 0;
   const max = w ? Math.max(w.legacy_annual_gal, 1) : 1;
 
-  async function download() {
-    setReportMsg("Preparing PDF…");
-    try {
-      setReportMsg(`Downloaded ${await api.downloadReport(saved.design, saved.selected_option, saved.edits)}`);
-    } catch (e) {
-      setReportMsg(`Report failed: ${e.message}`);
-    }
-  }
-
   return (
     <div>
       <header className="page-head">
         <div><span className="eyebrow">EPA WaterSense</span><h1>Water impact</h1></div>
-        {saved && <button type="button" className="btn primary" onClick={download}>Download PDF report</button>}
       </header>
       {error && <div className="banner error">{error}</div>}
       {saved ? (
         <p className="muted">
           Your {saved.design.inputs.theme} design · {saved.design.inputs.length_ft}×{saved.design.inputs.width_ft} ft ·
-          household of {saved.design.inputs.household}. {ROLE_LABELS[role]} report: {REPORT_DESCRIPTIONS[role]}
-          {reportMsg && <span role="status"> · {reportMsg}</span>}
+          household of {saved.design.inputs.household}.
         </p>
       ) : (
         <p className="muted">Sample bundle. <Link to="/planner">Generate a design</Link> to see — and download — your own numbers.</p>
@@ -86,6 +71,12 @@ export default function Sustainability() {
           </>
         )}
       </section>
+      {saved && (
+        <section className="panel report-panel">
+          <h3 className="panel-title">Download report</h3>
+          <ReportPicker onDownload={(type) => api.downloadReport(saved.design, saved.selected_option, saved.edits, type)} />
+        </section>
+      )}
     </div>
   );
 }
