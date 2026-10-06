@@ -25,7 +25,7 @@ import re
 import time
 
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, request
+from flask import Flask, Response, g, jsonify, request
 from flask_cors import CORS
 
 load_dotenv()
@@ -34,6 +34,7 @@ import ai_engine  # noqa: E402
 import auth  # noqa: E402
 import db  # noqa: E402
 import reasoning  # noqa: E402
+import report  # noqa: E402
 from intent_parser import parse_prompt  # noqa: E402
 from layout import describe_layout, layout_features, mount_faucet, verify_layout  # noqa: E402
 from solver import _fx, currency_of, load_catalog, solve_bathroom_bundle, water_use  # noqa: E402
@@ -260,7 +261,9 @@ def _register_routes(app):
             result["watersense"] = _watersense_report(result["bundle"])
 
             # STEP 7 -- narration grounded on the verified numbers.
-            result["rationale"] = ai_engine.explain(result, prompt_text, parsed)
+            result["rationale"] = (ai_engine.explain(result, prompt_text, parsed)
+                                   or ai_engine.fallback_rationale(
+                                       result, parsed, options[0] if options else None))
             result["reasoning"] = reasoning.build(parsed, result, options, trace, source,
                                                  llm_live=ai_engine.ai_status() == "live")
 
@@ -321,6 +324,36 @@ def _register_routes(app):
                         "placements": _finalize(placements, by_cat, W_in, L_in),
                         "features": feats, "summary": describe_layout(feats)})
 
+    # ---------------------------------------------------------- report --
+    def _pdf_response(design, selected, edits, user, name):
+        role = user["role"] if user else "homeowner"
+        try:
+            pdf = report.build(design, selected, edits, role=role)
+        except report.ReportError as exc:
+            return _err(str(exc))
+        safe = re.sub(r"[^A-Za-z0-9_-]+", "-", name).strip("-")[:60] or "design"
+        return Response(pdf, mimetype="application/pdf", headers={
+            "Content-Disposition": f'attachment; filename="plumbline-{safe}-{role}.pdf"',
+            "Access-Control-Expose-Headers": "Content-Disposition"})
+
+    @app.route("/api/report", methods=["POST"])
+    def design_report():
+        """PDF for the design on screen. Detail depends on the signed-in role
+        (anonymous visitors get the homeowner summary)."""
+        body = request.get_json(silent=True) or {}
+        return _pdf_response(body.get("design"), body.get("selected_option"),
+                             body.get("edits"), auth.current_user(), "design")
+
+    @app.route("/api/projects/<int:pid>/report")
+    @auth.require_auth
+    def project_report(pid):
+        project = db.get_project(pid)
+        if not _can_access(project, g.user):
+            return _err("Project not found", 404)
+        d = project["data"]
+        return _pdf_response(d.get("design"), d.get("selected_option"), d.get("edits"),
+                             g.user, project["name"])
+
     # ------------------------------------------------------------ auth --
     @app.route("/api/auth/register", methods=["POST"])
     def register():
@@ -328,13 +361,16 @@ def _register_routes(app):
         email = str(body.get("email", "")).strip().lower()
         password = str(body.get("password", ""))
         name = str(body.get("name", "")).strip()[:120]
+        role = body.get("role") or "homeowner"
+        if role not in db.SELF_SERVICE_ROLES:
+            # Kohler-team and admin access are granted by an admin, never self-assigned.
+            return _err(f"role must be one of: {', '.join(db.SELF_SERVICE_ROLES)}")
         if not EMAIL_RE.match(email):
             return _err("A valid email is required")
         if len(password) < 8:
             return _err("Password must be at least 8 characters")
-        # Self-registration always creates a plain user; admins are seeded
-        # from the environment or promoted by another admin.
-        user = db.create_user(email, password, name=name or email.split("@")[0])
+        # Admins are seeded from the environment or promoted by another admin.
+        user = db.create_user(email, password, name=name or email.split("@")[0], role=role)
         if user is None:
             return _err("An account with that email already exists", 409)
         return jsonify({"status": "success", "token": auth.issue_token(user),

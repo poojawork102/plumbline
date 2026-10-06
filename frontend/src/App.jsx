@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./lib/auth.jsx";
+import { ROLE_LABELS } from "./lib/personas.js";
+import { useTheme } from "./lib/theme.js";
 import Home from "./pages/Home.jsx";
 import Login from "./pages/Login.jsx";
 import Planner from "./pages/Planner.jsx";
@@ -20,6 +22,7 @@ export function RequireAuth({ children, admin = false }) {
 
 function Nav() {
   const { user, isAdmin, logout } = useAuth();
+  const { theme, toggle } = useTheme();
   return (
     <nav className="nav">
       <NavLink to="/" className="brand">PLUMBLINE</NavLink>
@@ -30,9 +33,13 @@ function Nav() {
         {isAdmin && <NavLink to="/admin">Admin</NavLink>}
       </div>
       <div className="nav-user">
+        <button type="button" className="theme-toggle" onClick={toggle} data-testid="theme-toggle"
+          aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} title={`${theme === "dark" ? "Light" : "Dark"} mode`}>
+          {theme === "dark" ? "☀" : "☾"}
+        </button>
         {user ? (
           <>
-            <span className="muted small">{user.email}{isAdmin ? " · admin" : ""}</span>
+            <span className="muted small">{user.email} · <span className="role-badge">{ROLE_LABELS[user.role] || user.role}</span></span>
             <button type="button" className="btn small" onClick={logout}>Sign out</button>
           </>
         ) : (

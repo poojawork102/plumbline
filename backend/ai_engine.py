@@ -544,4 +544,28 @@ def explain(result, brief, parsed):
         saved=m.get("water", {}).get("saved_gal"),
         pct=m.get("water", {}).get("saved_pct"), layout=layout),
         system=RATIONALE_SYSTEM, temperature=0.5)
-    return data if isinstance(data, dict) else None
+    if isinstance(data, dict):
+        return dict(data, source="gemini")
+    return None
+
+
+def fallback_rationale(result, parsed, option=None):
+    """Short, factual explanation built from the verified numbers when the
+    LLM is unavailable -- so the user never sees an empty 'explain' step."""
+    m = result["metrics"]
+    w = m["water"]
+    feats = (option or {}).get("features") or {}
+    walls = feats.get("walls") or {}
+    where = ", ".join(f"{c} on the {walls[c]} wall" for c in ("shower", "toilet", "vanity") if c in walls)
+    trade = ("The toilet faces the door; pick another option to screen it."
+             if feats and not feats.get("toilet_screened") else
+             f"Uses {m['budget_used_pct']}% of the budget; a cheaper bundle would give up "
+             "some theme fit or smart features.")
+    return {"source": "solver",
+            "headline": f"{parsed['theme']} bath, {w['saved_pct']}% less water",
+            "why_this_works": (f"{where.capitalize()}. " if where else "")
+                              + f"Fixtures use {m['space_utilization_pct']}% of the floor, "
+                                "leaving clear circulation.",
+            "sustainability": f"Saves about {w['saved_gal']:,} gallons a year for "
+                              f"{parsed['household']} people.",
+            "tradeoff": trade}

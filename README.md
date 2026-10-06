@@ -53,6 +53,9 @@ The self-correction trace is returned under `data.ai.trace` and rendered in the 
 | Admin / authority role | Email + password login with `user` and `admin` roles. Users submit designs for approval; admins review (approve/reject with a note), manage roles and see stats. The server re-verifies a layout before it can be submitted, so an authority never reviews a broken plan. |
 | Cloud save | Projects persist to **Neon Postgres** (SQLite locally). Re-open, rename, delete; editing an approved design sends it back to draft. |
 
+| Role-based PDF reports | **Download PDF report** on the Planner, Sustainability and My projects pages. The server builds it and recomputes every number from the catalogue. Detail follows the signed-in role: **Homeowner** (cost, water, products, plan), **Architect / designer** (+ dimensions, clearances, placement schedule, compliance), **Kohler team** (+ SKUs, bundle-selection maths, AI trace, features). People pick Homeowner or Architect at sign-up; an admin grants Kohler team or admin. |
+| Usability | Slider controls (no fiddly number boxes), one-line reasoning and checks that expand on tap, a short explanation even with the AI offline, and a dark-mode toggle that follows your OS until you choose. |
+
 EPA WaterSense checks and the verify–repair–fallback loop are unchanged and still gate every layout.
 
 ---
@@ -67,6 +70,7 @@ backend/            Flask JSON API  → Render (persistent web service)
   layout.py         geometry, verifier, option enumeration
   reasoning.py      step-by-step reasoning shown in the UI
   db.py / auth.py   Postgres (Neon) persistence, bearer-token auth + roles
+  report.py         role-based PDF report (fpdf2)
   tests/            pytest
 frontend/           React + Vite + Three.js → Vercel
   src/components/   FloorPlan (drag/drop), Room3D, ReasoningPanel, OptionPicker
@@ -104,7 +108,7 @@ GET /api/health
 → {"status":"ok","gemini":"live","model":"gemini-3.6-flash","catalog":16,"database":"postgresql"}
 ```
 
-Set `ADMIN_EMAIL` / `ADMIN_PASSWORD` to create the first admin account at startup. Self-registration always creates a plain user; admins promote others from the Admin console.
+Set `ADMIN_EMAIL` / `ADMIN_PASSWORD` to create the first admin account at startup. People sign up as Homeowner or Architect; admins grant the Kohler team or admin roles from the Admin console.
 
 ---
 

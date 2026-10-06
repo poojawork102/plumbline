@@ -18,7 +18,9 @@ def _understand(parsed):
     if parsed.get("prioritize_smart"):
         detail.append("smart fixtures prioritised")
     notes = [f"Assumed: {a}" for a in parsed.get("assumed") or []]
-    return {"stage": "understand", "title": "Understand the brief", "actor": src,
+    short = (f"{parsed['length_ft']:g}×{parsed['width_ft']:g} ft · {parsed['theme']} · "
+             f"{parsed['household']} people")
+    return {"stage": "understand", "title": "Understand the brief", "actor": src, "short": short,
             "summary": who + ".", "said": parsed.get("reading"),
             "details": ["; ".join(detail)] + notes}
 
@@ -35,7 +37,9 @@ def _select(sel):
     for r in sel.get("runners_up", []):
         details.append(f"Runner-up at {r['cost_label']} swaps: {', '.join(r['differs_by'])}")
     rank = f"#{sel['rank']}" if sel.get("rank") else "the best valid"
-    return {"stage": "select", "title": "Select products", "actor": "solver",
+    short = (f"Best of {sel['within_budget']} in-budget bundles · "
+             f"{sel['theme_matches']}/4 match the theme")
+    return {"stage": "select", "title": "Select products", "actor": "solver", "short": short,
             "summary": f"Chose bundle {rank} of {sel['within_budget']} affordable options "
                        f"({sel['theme_matches']} of 4 items match the theme).",
             "said": None, "details": details}
@@ -44,6 +48,8 @@ def _select(sel):
 def _arrange(trace, source, llm_live):
     attempts = []
     for t in trace:
+        if not llm_live and t.get("source") == "gemini" and not t.get("arrangement"):
+            continue        # the model was never reachable: not an attempt worth showing
         attempts.append({
             "attempt": t.get("attempt"), "source": t.get("source"),
             "stage": t.get("stage", "primary"), "accepted": t.get("accepted"),
@@ -62,7 +68,10 @@ def _arrange(trace, source, llm_live):
         by = "No LLM available; the constraint solver placed the fixtures"
     elif source == "deterministic" and not rejected:
         by = "Gemini did not return a usable layout, so the constraint solver supplied one"
-    return {"stage": "arrange", "title": "Arrange, verify & repair", "actor": source,
+    short = {"gemini": "AI layout passed" + (f" after {rejected} fix(es)" if rejected else " first time"),
+             "cache": "Re-used a verified layout"}.get(
+        source, "Solver layout (AI offline)" if not llm_live else "Solver stepped in")
+    return {"stage": "arrange", "title": "Arrange, verify & repair", "actor": source, "short": short,
             "summary": f"{by}. {rejected} rejected proposal(s) were caught by the verifier.",
             "said": None, "details": [], "attempts": attempts}
 
@@ -73,7 +82,9 @@ def _verify(checks, watersense):
     for w in watersense["items"]:
         details.append(f"{'PASS' if w['certified'] else 'FAIL'} WaterSense {w['category']}: "
                        f"{w['rated']} {w['unit']} (limit {w['limit']})")
-    return {"stage": "verify", "title": "Independent verification", "actor": "verifier",
+    short = (f"{sum(c['passed'] for c in checks)}/{len(checks)} spatial · "
+             f"{watersense['certified_count']}/{watersense['total']} WaterSense")
+    return {"stage": "verify", "title": "Independent verification", "actor": "verifier", "short": short,
             "summary": f"{sum(c['passed'] for c in checks)}/{len(checks)} spatial checks and "
                        f"{watersense['certified_count']}/{watersense['total']} "
                        "EPA WaterSense checks passed.",
@@ -82,6 +93,7 @@ def _verify(checks, watersense):
 
 def _options(options):
     return {"stage": "options", "title": "Offer alternatives", "actor": "mixed",
+            "short": f"{len(options)} verified layouts to compare",
             "summary": f"{len(options)} verified layout option(s) for the same products.",
             "said": None,
             "details": [f"{o['id']} - {o['name']} ({o['source']}): {o['summary']}"
@@ -91,10 +103,12 @@ def _options(options):
 def _narrate(rationale):
     if not rationale:
         return {"stage": "narrate", "title": "Explain the design", "actor": "offline",
-                "summary": "LLM unavailable; no narrative written (numbers above are exact).",
-                "said": None, "details": []}
-    return {"stage": "narrate", "title": "Explain the design", "actor": "gemini",
-            "summary": "Rationale written using only the verified numbers.",
+                "short": "No explanation available", "summary": "", "said": None, "details": []}
+    actor = "gemini" if rationale.get("source") == "gemini" else "solver"
+    return {"stage": "narrate", "title": "Explain the design", "actor": actor,
+            "short": rationale.get("headline") or "Design explained",
+            "summary": ("Written by Gemini using only the verified numbers." if actor == "gemini"
+                        else "Written from the verified numbers (AI offline)."),
             "said": rationale.get("why_this_works"),
             "details": [v for k, v in rationale.items()
                         if k in ("sustainability", "tradeoff") and v]}

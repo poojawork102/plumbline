@@ -22,17 +22,19 @@ const steps = [
 ];
 
 describe("ReasoningPanel", () => {
-  it("shows each step, the model's words, and rejected attempts with critique", () => {
-    render(<ReasoningPanel steps={steps} />);
-    expect(screen.getByText("Understand the brief")).toBeInTheDocument();
+  it("shows one short line per step and expands details on demand", () => {
+    const withShort = steps.map((s, i) => ({ ...s, short: i === 0 ? "10×8 ft · Zen · 4 people" : "AI layout passed after 1 fix(es)" }));
+    render(<ReasoningPanel steps={withShort} />);
+    expect(screen.getByText("10×8 ft · Zen · 4 people")).toBeInTheDocument();
+    // details hidden until the step is opened
+    expect(screen.queryByText("“A calm spa bathroom”")).toBeNull();
+    expect(screen.queryByText(/toilet overlaps shower/)).toBeNull();
+    fireEvent.click(screen.getByText("Understand the brief"));
     expect(screen.getByText("“A calm spa bathroom”")).toBeInTheDocument();
-    // rejected attempt is expanded by default, showing the verifier's reason
-    expect(screen.getByText("✗ toilet overlaps shower")).toBeInTheDocument();
-    expect(screen.getByText("Critique sent back to the model")).toBeInTheDocument();
-    // accepted attempt collapsed until clicked
-    expect(screen.queryByText("“separate walls”")).toBeNull();
-    fireEvent.click(screen.getByText(/Attempt 2/));
-    expect(screen.getByText("“separate walls”")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Arrange, verify & repair"));
+    expect(screen.queryByText("“A calm spa bathroom”")).toBeNull();   // one open at a time
+    expect(screen.getByText(/toilet overlaps shower/)).toBeInTheDocument();
+    expect(screen.getByText("Critique sent to the model")).toBeInTheDocument();
   });
 
   it("has an empty state", () => {
@@ -151,4 +153,45 @@ it("labels sit in front of the fixture, inside the room", () => {
   const pos = labelPosition(vanity, 4);
   expect(pos.x).toBeLessThan(vanity.x);              // pushed into the room, away from the wall
   expect(labelPosition({ side: "top", x: 0, y: 0, w: 20, d: 28 }, 4).y).toBeGreaterThan(28);
+});
+
+describe("FloorPlan drag feedback", () => {
+  const placements = [
+    { ...buildPlacement(FIXTURES[0], "top", 60, ROOM.width, ROOM.length) },
+    { ...buildPlacement(FIXTURES[1], "top", 6, ROOM.width, ROOM.length) },
+    { ...buildPlacement(FIXTURES[2], "right", 60, ROOM.width, ROOM.length) },
+  ];
+  function mount() {
+    render(<FloorPlan room={ROOM} placements={placements} fixtures={FIXTURES} onPreview={() => {}} onCommit={() => {}} />);
+    const svg = screen.getByTestId("floorplan");
+    svg.getScreenCTM = () => ({ inverse: () => ({}) });
+    svg.createSVGPoint = () => { const pt = { x: 0, y: 0 }; pt.matrixTransform = () => ({ x: pt.x, y: pt.y }); return pt; };
+    return svg;
+  }
+
+  it("highlights the wall the fixture will snap to while dragging", () => {
+    const svg = mount();
+    expect(screen.queryByTestId("target-wall")).toBeNull();
+    fireEvent.pointerDown(screen.getByTestId("fixture-vanity"), { clientX: 85, clientY: 75 });
+    fireEvent.pointerMove(svg, { clientX: 4, clientY: 50 });
+    const line = screen.getByTestId("target-wall");
+    expect(line.getAttribute("x1")).toBe("0");
+    expect(line.getAttribute("x2")).toBe("0");          // left wall
+    fireEvent.pointerUp(svg);
+    expect(screen.queryByTestId("target-wall")).toBeNull();
+  });
+
+  it("focuses the hovered fixture's clearance and dims the rest", () => {
+    mount();
+    fireEvent.pointerEnter(screen.getByTestId("fixture-toilet"));
+    expect(screen.getByTestId("clearance-toilet")).toHaveClass("active");
+    expect(screen.getByTestId("clearance-shower")).toHaveClass("dim");
+  });
+
+  it("gives thin fixtures a grab area of at least 18 inches", () => {
+    const thin = [{ ...buildPlacement({ category: "vanity", width: 40, depth: 5, side_min: 0, front_min: 21 }, "left", 30, ROOM.width, ROOM.length) }];
+    render(<FloorPlan room={ROOM} placements={thin} fixtures={[{ category: "vanity", width: 40, depth: 5, side_min: 0, front_min: 21 }]} />);
+    const hit = screen.getByTestId("fixture-vanity").querySelector(".fp-hit");
+    expect(Number(hit.getAttribute("width"))).toBeGreaterThanOrEqual(18);
+  });
 });

@@ -4,10 +4,28 @@ import FloorPlan from "../components/FloorPlan.jsx";
 import OptionPicker from "../components/OptionPicker.jsx";
 import ReasoningPanel from "../components/ReasoningPanel.jsx";
 import { BillOfMaterials, Checks, Metrics } from "../components/DesignSummary.jsx";
+import Slider from "../components/Slider.jsx";
 import { api } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import { arrangementOf, quickProblems } from "../lib/geometry.js";
 import { money } from "../lib/format.js";
+import { REPORT_DESCRIPTIONS, ROLE_LABELS } from "../lib/personas.js";
+
+export const LAST_DESIGN_KEY = "plumbline_last_design";
+
+/** Remember the design on screen so Sustainability can report on it. */
+function rememberDesign(value) {
+  try {
+    sessionStorage.setItem(LAST_DESIGN_KEY, JSON.stringify(value));
+  } catch { /* storage full or blocked: Sustainability falls back to a sample */ }
+}
+
+export function compactMoney(v, currency) {
+  if (currency !== "INR") return money(v, currency);
+  if (v >= 1e7) return `₹${+(v / 1e7).toFixed(2)} Cr`;
+  if (v >= 1e5) return `₹${+(v / 1e5).toFixed(1)} L`;
+  return money(v, currency);
+}
 
 // three.js is ~600 KB: only load it when the 3D tab is opened.
 const Room3D = lazy(() => import("../components/Room3D.jsx"));
@@ -46,6 +64,7 @@ export default function Planner() {
   const [project, setProject] = useState(null);
   const [projectName, setProjectName] = useState("");
   const [saveMsg, setSaveMsg] = useState(null);
+  const [reportMsg, setReportMsg] = useState(null);
 
   useEffect(() => {
     api.config().then(setConfig).catch(() => setConfig(null));
@@ -74,6 +93,20 @@ export default function Planner() {
   const placements = preview || basePlacements;
   const problems = preview ? quickProblems(preview, design.layout.room_in.width, design.layout.room_in.length) : edit?.problems || [];
   const invalid = useMemo(() => invalidCategories(problems), [problems]);
+  useEffect(() => {
+    if (design?.status === "ok") rememberDesign({ design, selected_option: option?.id, edits });
+  }, [design, option?.id, edits]);
+
+  async function downloadReport() {
+    setReportMsg("Preparing PDF…");
+    try {
+      const name = await api.downloadReport(design, option?.id, edits);
+      setReportMsg(`Downloaded ${name}`);
+    } catch (e) {
+      setReportMsg(`Report failed: ${e.message}`);
+    }
+  }
+
   const room = design?.layout?.room_in
     || (design && { width: design.inputs.width_ft * 12, length: design.inputs.length_ft * 12 });
 
@@ -92,7 +125,8 @@ export default function Planner() {
       if (projectId) setSearch({});
       if (r.parsed) {
         setParams({
-          length_ft: r.parsed.length_ft, width_ft: r.parsed.width_ft, budget: r.parsed.budget,
+          length_ft: r.parsed.length_ft, width_ft: r.parsed.width_ft,
+          budget: Math.min(5000000, Math.max(50000, Math.round(r.parsed.budget / 10000) * 10000)),
           theme: r.parsed.theme, household: r.parsed.household, prioritize_smart: r.parsed.prioritize_smart,
         });
       }
@@ -153,7 +187,8 @@ export default function Planner() {
   }
 
   const themes = config?.themes || ["Minimalist Modern", "Japanese Zen", "Classic Luxury"];
-  const set = (k) => (ev) => setParams({ ...params, [k]: ev.target.type === "checkbox" ? ev.target.checked : ev.target.value });
+  const set = (k) => (v) => setParams({ ...params, [k]: v });
+  const cur = config?.currency || "INR";
 
   return (
     <div className="planner">
@@ -181,14 +216,18 @@ export default function Planner() {
 
           <h3 className="panel-title">02 · Controls</h3>
           <form className="controls" onSubmit={(ev) => { ev.preventDefault(); generate({ params, prompt: "" }); }}>
-            <label>Length (ft)<input type="number" min="4" max="30" step="0.5" value={params.length_ft} onChange={set("length_ft")} /></label>
-            <label>Width (ft)<input type="number" min="4" max="30" step="0.5" value={params.width_ft} onChange={set("width_ft")} /></label>
-            <label>Budget ({config?.currency || "INR"})<input type="number" min="1" step="10000" value={params.budget} onChange={set("budget")} /></label>
-            <label>Household<input type="number" min="1" max="12" value={params.household} onChange={set("household")} /></label>
-            <label className="wide">Theme
-              <select value={params.theme} onChange={set("theme")}>{themes.map((t) => <option key={t}>{t}</option>)}</select>
+            <Slider name="length" label="Length" value={params.length_ft} min={4} max={30} step={0.5}
+              format={(v) => `${v} ft`} onChange={set("length_ft")} />
+            <Slider name="width" label="Width" value={params.width_ft} min={4} max={30} step={0.5}
+              format={(v) => `${v} ft`} onChange={set("width_ft")} />
+            <Slider name="budget" label="Budget" value={params.budget} min={50000} max={5000000} step={10000}
+              format={(v) => compactMoney(v, cur)} onChange={set("budget")} />
+            <Slider name="household" label="Household" value={params.household} min={1} max={12}
+              format={(v) => `${v} ${v === 1 ? "person" : "people"}`} onChange={set("household")} />
+            <label className="wide field">Theme
+              <select value={params.theme} onChange={(e) => set("theme")(e.target.value)}>{themes.map((t) => <option key={t}>{t}</option>)}</select>
             </label>
-            <label className="check wide"><input type="checkbox" checked={params.prioritize_smart} onChange={set("prioritize_smart")} /> Prioritise smart fixtures</label>
+            <label className="check wide"><input type="checkbox" checked={params.prioritize_smart} onChange={(e) => set("prioritize_smart")(e.target.checked)} /> Prioritise smart fixtures</label>
             <button className="btn block" disabled={loading}>Apply controls</button>
           </form>
         </aside>
@@ -280,6 +319,13 @@ export default function Planner() {
                 <p className="muted"><Link to="/login?next=/planner">Sign in</Link> to save designs to the cloud.</p>
               )}
               {saveMsg && <p className="small" role="status">{saveMsg}</p>}
+
+              <h3 className="panel-title">05 · Report</h3>
+              <button type="button" className="btn block" onClick={downloadReport}>Download PDF report</button>
+              <p className="muted small">
+                {ROLE_LABELS[user?.role || "homeowner"]} report: {REPORT_DESCRIPTIONS[user?.role || "homeowner"]}
+              </p>
+              {reportMsg && <p className="small" role="status">{reportMsg}</p>}
             </div>
           )}
         </aside>
@@ -287,7 +333,7 @@ export default function Planner() {
 
       {design && (design.bundle?.length || design.alternative) && (
         <section className="panel">
-          <h3 className="panel-title">05 · Bill of materials</h3>
+          <h3 className="panel-title">06 · Bill of materials</h3>
           <BillOfMaterials bundle={design.bundle?.length ? design.bundle : design.alternative.bundle}
             total={design.metrics?.total_cost ?? design.alternative.total_cost} currency={design.currency} />
         </section>

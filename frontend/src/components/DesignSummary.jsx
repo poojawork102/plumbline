@@ -15,27 +15,36 @@ export function Metrics({ design }) {
   );
 }
 
+/** Short labels so the checks read as a checklist, not paragraphs. */
+const SHORT = {
+  Budget: (c) => c.detail.split(" (")[0].replace(" of ", " / "),
+  "Floor usage": (c) => c.detail.split(" allowed")[0].replace(" of ", " / ") + " sq ft",
+  Clearances: () => "front & side clear",
+  "Door swing": () => "unobstructed",
+  "No overlaps": () => "none",
+};
+
 export function Checks({ checks, watersense, liveProblems }) {
   return (
-    <div className="checks">
+    <ul className="checks">
       {liveProblems && (
-        <div className={`check-row ${liveProblems.length ? "bad" : "ok"}`}>
-          {liveProblems.length ? "✗" : "✓"} Edited layout: {liveProblems.length ? liveProblems.join("; ") : "passes verification"}
-        </div>
+        <li className={liveProblems.length ? "bad" : "ok"}>
+          {liveProblems.length ? "✗" : "✓"} <strong>Your edit</strong>{" "}
+          {liveProblems.length ? liveProblems.join("; ") : "passes"}
+        </li>
       )}
       {checks.map((c) => (
-        <div key={c.name} className={`check-row ${c.passed ? "ok" : "bad"}`}>
-          {c.passed ? "✓" : "✗"} {c.name} <span className="muted">{c.detail}</span>
-        </div>
+        <li key={c.name} className={c.passed ? "ok" : "bad"} title={c.detail}>
+          {c.passed ? "✓" : "✗"} <strong>{c.name}</strong> <span className="muted">{(SHORT[c.name] || ((x) => x.detail))(c)}</span>
+        </li>
       ))}
-      <h4 className="subhead">EPA WaterSense</h4>
       {watersense.items.map((w) => (
-        <div key={w.category} className={`check-row ${w.certified ? "ok" : "bad"}`}>
-          {w.certified ? "✓" : "✗"} {w.category}: {w.rated} {w.unit}
-          <span className="muted"> (max {w.limit})</span>
-        </div>
+        <li key={w.category} className={w.certified ? "ok" : "bad"}>
+          {w.certified ? "✓" : "✗"} <strong>WaterSense {w.category}</strong>{" "}
+          <span className="muted">{w.rated} / {w.limit} {w.unit}</span>
+        </li>
       ))}
-    </div>
+    </ul>
   );
 }
 

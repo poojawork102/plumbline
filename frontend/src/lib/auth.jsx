@@ -24,7 +24,7 @@ export function AuthProvider({ children }) {
     return r.user;
   };
   const login = useCallback((email, password) => api.login(email, password).then(finish), []);
-  const register = useCallback((email, password, name) => api.register(email, password, name).then(finish), []);
+  const register = useCallback((email, password, name, role) => api.register(email, password, name, role).then(finish), []);
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);

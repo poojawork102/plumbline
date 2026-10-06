@@ -56,6 +56,37 @@ export async function request(path, { method = "GET", body, auth = true } = {}) 
   return json;
 }
 
+/** Fetch a PDF and hand it to the browser as a download. */
+export async function downloadFile(path, { method = "GET", body, fallbackName = "plumbline-report.pdf" } = {}) {
+  const headers = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let res;
+  try {
+    res = await fetch(`${API_URL}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  } catch {
+    throw new ApiError("Cannot reach the Plumbline API. It may be waking up — try again in a moment.", 0);
+  }
+  if (!res.ok) {
+    let msg = `Download failed (${res.status})`;
+    try { msg = (await res.json()).message || msg; } catch { /* not JSON */ }
+    throw new ApiError(msg, res.status);
+  }
+  const blob = await res.blob();
+  const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") || "");
+  const name = match ? match[1] : fallbackName;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return name;
+}
+
 export const api = {
   health: () => request("/api/health", { auth: false }),
   config: () => request("/api/config", { auth: false }),
@@ -63,7 +94,7 @@ export const api = {
   verifyLayout: (payload) => request("/api/layout/verify", { method: "POST", body: payload, auth: false }),
   sustainability: (household) => request(`/api/sustainability?household=${encodeURIComponent(household)}`, { auth: false }),
 
-  register: (email, password, name) => request("/api/auth/register", { method: "POST", body: { email, password, name }, auth: false }),
+  register: (email, password, name, role) => request("/api/auth/register", { method: "POST", body: { email, password, name, role }, auth: false }),
   login: (email, password) => request("/api/auth/login", { method: "POST", body: { email, password }, auth: false }),
   me: () => request("/api/auth/me"),
 
@@ -73,6 +104,10 @@ export const api = {
   updateProject: (id, patch) => request(`/api/projects/${id}`, { method: "PUT", body: patch }),
   deleteProject: (id) => request(`/api/projects/${id}`, { method: "DELETE" }),
   submitProject: (id) => request(`/api/projects/${id}/submit`, { method: "POST", body: {} }),
+
+  downloadReport: (design, selectedOption, edits) =>
+    downloadFile("/api/report", { method: "POST", body: { design, selected_option: selectedOption, edits } }),
+  downloadProjectReport: (id) => downloadFile(`/api/projects/${id}/report`),
 
   adminStats: () => request("/api/admin/stats"),
   adminUsers: () => request("/api/admin/users"),

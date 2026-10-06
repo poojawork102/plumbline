@@ -1,32 +1,78 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import Slider from "../components/Slider.jsx";
 import { api } from "../lib/api.js";
+import { useAuth } from "../lib/auth.jsx";
+import { REPORT_DESCRIPTIONS, ROLE_LABELS } from "../lib/personas.js";
+import { LAST_DESIGN_KEY } from "./Planner.jsx";
+
+function lastDesign() {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(LAST_DESIGN_KEY) || "null");
+    return v?.design?.status === "ok" ? v : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function Sustainability() {
-  const [household, setHousehold] = useState(4);
-  const [data, setData] = useState(null);
+  const { user } = useAuth();
+  const saved = useMemo(lastDesign, []);
+  const [household, setHousehold] = useState(saved?.design.inputs.household || 4);
+  const [sample, setSample] = useState(null);
   const [error, setError] = useState(null);
+  const [reportMsg, setReportMsg] = useState(null);
+  const role = user?.role || "homeowner";
 
+  // Your own design when you have one; a sample bundle otherwise.
   useEffect(() => {
-    api.sustainability(household).then(setData).catch((e) => setError(e.message));
-  }, [household]);
+    if (saved) return;
+    api.sustainability(household).then(setSample).catch((e) => setError(e.message));
+  }, [household, saved]);
 
-  const w = data?.water;
+  const w = saved ? saved.design.metrics.water : sample?.water;
+  const ws = saved ? saved.design.watersense : sample?.watersense;
+  const rupees = w ? Math.round(w.saved_gal * 3.78 * 0.05) : 0;
   const max = w ? Math.max(w.legacy_annual_gal, 1) : 1;
+
+  async function download() {
+    setReportMsg("Preparing PDF…");
+    try {
+      setReportMsg(`Downloaded ${await api.downloadReport(saved.design, saved.selected_option, saved.edits)}`);
+    } catch (e) {
+      setReportMsg(`Report failed: ${e.message}`);
+    }
+  }
+
   return (
     <div>
-      <header className="page-head"><div><span className="eyebrow">EPA WaterSense</span><h1>Water impact</h1></div></header>
+      <header className="page-head">
+        <div><span className="eyebrow">EPA WaterSense</span><h1>Water impact</h1></div>
+        {saved && <button type="button" className="btn primary" onClick={download}>Download PDF report</button>}
+      </header>
       {error && <div className="banner error">{error}</div>}
+      {saved ? (
+        <p className="muted">
+          Your {saved.design.inputs.theme} design · {saved.design.inputs.length_ft}×{saved.design.inputs.width_ft} ft ·
+          household of {saved.design.inputs.household}. {ROLE_LABELS[role]} report: {REPORT_DESCRIPTIONS[role]}
+          {reportMsg && <span role="status"> · {reportMsg}</span>}
+        </p>
+      ) : (
+        <p className="muted">Sample bundle. <Link to="/planner">Generate a design</Link> to see — and download — your own numbers.</p>
+      )}
       <section className="panel">
-        <label className="inline">Household size
-          <input type="range" min="1" max="12" value={household} onChange={(e) => setHousehold(Number(e.target.value))} />
-          <strong>{household}</strong>
-        </label>
+        {!saved && (
+          <div className="slider-wrap">
+            <Slider name="household" label="Household size" value={household} min={1} max={12}
+              format={(v) => `${v} ${v === 1 ? "person" : "people"}`} onChange={setHousehold} />
+          </div>
+        )}
         {w && (
           <>
             <div className="metrics">
               <div className="metric"><span>Saved per year</span><strong>{w.saved_gal.toLocaleString()} gal</strong><em>{w.saved_pct}% less</em></div>
-              <div className="metric"><span>Approx. bill saving</span><strong>₹{data.rupees_saved.toLocaleString("en-IN")}</strong></div>
-              <div className="metric"><span>WaterSense</span><strong>{data.watersense.certified_count}/{data.watersense.total}</strong><em>fixtures certified</em></div>
+              <div className="metric"><span>Approx. bill saving</span><strong>₹{rupees.toLocaleString("en-IN")}</strong></div>
+              <div className="metric"><span>WaterSense</span><strong>{ws.certified_count}/{ws.total}</strong><em>fixtures certified</em></div>
             </div>
             {["toilet", "shower", "faucet"].map((k) => (
               <div key={k} className="bar-row">

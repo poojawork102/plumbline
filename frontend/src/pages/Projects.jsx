@@ -41,6 +41,7 @@ export default function Projects() {
             {p.review_note && <p className="note">Reviewer: “{p.review_note}”</p>}
             <div className="row gap">
               <Link className="btn small" to={`/planner?project=${p.id}`}>Open</Link>
+              <button type="button" className="btn small" onClick={() => act(() => api.downloadProjectReport(p.id))}>Report PDF</button>
               {(p.status === "draft" || p.status === "rejected") && (
                 <button type="button" className="btn small" onClick={() => act(() => api.submitProject(p.id))}>Submit for approval</button>
               )}

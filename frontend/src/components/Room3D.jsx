@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildRoomGroup, disposeGroup, updateCutaway } from "../lib/scene.js";
+import { currentTheme } from "../lib/theme.js";
+
+const BACKGROUND = { light: 0xf8f6f0, dark: 0x16161a };
 
 /** Interactive 3D view of the current layout (orbit, zoom, pan). */
 export default function Room3D({ room, placements, bundle, invalid }) {
@@ -24,7 +27,10 @@ export default function Room3D({ room, placements, bundle, invalid }) {
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf8f6f0);
+    scene.background = new THREE.Color(BACKGROUND[currentTheme()]);
+    // follow the site's light/dark toggle
+    const themeObserver = new MutationObserver(() => scene.background.setHex(BACKGROUND[currentTheme()]));
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     scene.add(new THREE.HemisphereLight(0xffffff, 0xd9d3c4, 1.1));
     const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(6, 14, 10);
@@ -59,6 +65,7 @@ export default function Room3D({ room, placements, bundle, invalid }) {
     ctx.current = { scene, camera, controls, group: null };
     return () => {
       cancelAnimationFrame(frame);
+      themeObserver.disconnect();
       ro.disconnect();
       controls.dispose();
       if (ctx.current?.group) disposeGroup(ctx.current.group);

@@ -63,6 +63,7 @@ export function labelPosition(p, fs) {
 export default function FloorPlan({ room, placements, fixtures, invalid = new Set(), editable = true, onPreview, onCommit }) {
   const svgRef = useRef(null);
   const [drag, setDrag] = useState(null);
+  const [hover, setHover] = useState(null);
   const W = room.width;
   const L = room.length;
   const pad = 30;
@@ -126,11 +127,23 @@ export default function FloorPlan({ room, placements, fixtures, invalid = new Se
   const floor = placements.filter((p) => p.category !== "faucet");
   const faucets = placements.filter((p) => p.category === "faucet" && !(drag && drag.category === "vanity"));
 
+  const active = drag?.category || hover;
+  const HIT_MIN = 18; // inches: thin fixtures (a 5in mirror vanity) still get a usable grab area
+  const hitRect = (p) => {
+    const w = Math.max(p.w, HIT_MIN);
+    const d = Math.max(p.d, HIT_MIN);
+    return { x: p.x + p.w / 2 - w / 2, y: p.y + p.d / 2 - d / 2, width: w, height: d };
+  };
+  const wallLine = (wall) => ({
+    top: [0, 0, W, 0], bottom: [0, L, W, L], left: [0, 0, 0, L], right: [W, 0, W, L],
+  })[wall];
+
   const grid = [];
   for (let x = 0; x <= W + 0.01; x += 12) grid.push(<line key={`gx${x}`} x1={x} y1="0" x2={x} y2={L} />);
   for (let y = 0; y <= L + 0.01; y += 12) grid.push(<line key={`gy${y}`} x1="0" y1={y} x2={W} y2={y} />);
 
   return (
+    <>
     <svg
       ref={svgRef}
       className={`floorplan ${drag ? "dragging" : ""}`}
@@ -145,9 +158,16 @@ export default function FloorPlan({ room, placements, fixtures, invalid = new Se
       <g className="fp-grid">{grid}</g>
 
       {floor.map((p) => p.clearance && (
-        <rect key={`c-${p.category}`} className={`fp-clearance ${invalid.has(p.category) ? "bad" : ""}`}
-          x={p.clearance.x} y={p.clearance.y} width={p.clearance.w} height={p.clearance.d} />
+        <rect key={`c-${p.category}`}
+          className={`fp-clearance ${invalid.has(p.category) ? "bad" : ""} ${active === p.category ? "active" : ""} ${active && active !== p.category ? "dim" : ""}`}
+          x={p.clearance.x} y={p.clearance.y} width={p.clearance.w} height={p.clearance.d}
+          data-testid={`clearance-${p.category}`} />
       ))}
+
+      {drag?.last && (() => {
+        const [x1, y1, x2, y2] = wallLine(drag.last.wall);
+        return <line className="fp-target-wall" x1={x1} y1={y1} x2={x2} y2={y2} data-testid="target-wall" />;
+      })()}
 
       <line className="fp-door-gap" x1="0" y1={L} x2={DOOR_IN} y2={L} />
       <path className="fp-door" d={`M 0 ${L} A ${DOOR_IN} ${DOOR_IN} 0 0 1 ${DOOR_IN} ${L - DOOR_IN}`} />
@@ -158,6 +178,10 @@ export default function FloorPlan({ room, placements, fixtures, invalid = new Se
           key={p.category}
           className={`fp-fixture-group ${editable ? "editable" : ""} ${invalid.has(p.category) ? "invalid" : ""}`}
           onPointerDown={(ev) => startDrag(ev, p)}
+          onPointerEnter={() => setHover(p.category)}
+          onPointerLeave={() => setHover((h) => (h === p.category ? null : h))}
+          onFocus={() => setHover(p.category)}
+          onBlur={() => setHover(null)}
           onKeyDown={(ev) => onKey(ev, p)}
           tabIndex={editable ? 0 : -1}
           role={editable ? "button" : undefined}
@@ -165,6 +189,7 @@ export default function FloorPlan({ room, placements, fixtures, invalid = new Se
           data-testid={`fixture-${p.category}`}
         >
           <title>{`${p.name || p.category} · ${p.u_len} × ${p.v_len} in`}</title>
+          <rect className="fp-hit" {...hitRect(p)} />
           <rect className="fp-fixture" x={p.x} y={p.y} width={p.w} height={p.d}
             style={{ fill: THEME_COLORS[p.category] }} />
           <g transform={`matrix(${localMatrix(p).join(" ")})`}><Detail p={p} /></g>
@@ -186,5 +211,12 @@ export default function FloorPlan({ room, placements, fixtures, invalid = new Se
       </g>
       <rect className="fp-wall" x="0" y="0" width={W} height={L} />
     </svg>
+    {editable && (
+      <p className="fp-legend small muted">
+        <span className="swatch clearance" /> Clear floor a fixture needs — zones may share space, never a fixture
+        <span className="swatch target" /> Wall it will snap to
+      </p>
+    )}
+    </>
   );
 }

@@ -18,7 +18,14 @@ from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.pool import StaticPool
 from werkzeug.security import check_password_hash, generate_password_hash
 
-ROLES = ("user", "admin")
+# Who the person is decides how detailed their report is:
+#   homeowner  budget, water and the products (self-registration)
+#   architect  + dimensions, clearances, placement schedule (self-registration)
+#   kohler     + AI pipeline trace, selection maths, SKU detail (granted by an admin)
+#   admin      the reviewing authority; sees the Kohler-level report
+ROLES = ("homeowner", "architect", "kohler", "admin")
+SELF_SERVICE_ROLES = ("homeowner", "architect")
+LEGACY_ROLES = {"user": "homeowner"}      # accounts created before personas existed
 PROJECT_STATUSES = ("draft", "submitted", "approved", "rejected")
 
 metadata = MetaData()
@@ -29,7 +36,7 @@ users = Table(
     Column("email", String(255), unique=True, nullable=False, index=True),
     Column("name", String(120), nullable=False, default=""),
     Column("password_hash", String(255), nullable=False),
-    Column("role", String(16), nullable=False, default="user"),
+    Column("role", String(16), nullable=False, default="homeowner"),
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -111,11 +118,12 @@ def ping():
 def _public_user(row):
     if row is None:
         return None
-    return {"id": row.id, "email": row.email, "name": row.name, "role": row.role,
+    role = LEGACY_ROLES.get(row.role, row.role)
+    return {"id": row.id, "email": row.email, "name": row.name, "role": role,
             "created_at": row.created_at.isoformat() if row.created_at else None}
 
 
-def create_user(email, password, name="", role="user"):
+def create_user(email, password, name="", role="homeowner"):
     """Returns the new user, or None if the email is taken."""
     if role not in ROLES:
         raise ValueError(f"role must be one of {ROLES}")

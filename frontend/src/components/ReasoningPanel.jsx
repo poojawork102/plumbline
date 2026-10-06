@@ -1,11 +1,11 @@
 import { useState } from "react";
 
 const ACTOR_LABEL = {
-  gemini: "Gemini",
-  regex: "Offline parser",
+  gemini: "AI",
+  regex: "Parser",
   controls: "Manual",
   solver: "Solver",
-  verifier: "Verifier",
+  verifier: "Check",
   deterministic: "Solver",
   cache: "Cache",
   offline: "Offline",
@@ -13,61 +13,54 @@ const ACTOR_LABEL = {
 };
 
 function Attempt({ a }) {
-  const [open, setOpen] = useState(!a.accepted);
   return (
     <li className={`attempt ${a.accepted ? "ok" : "bad"}`}>
-      <button type="button" className="attempt-head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className="attempt-mark">{a.accepted ? "✓" : "✗"}</span>
-        {a.stage === "alternatives" ? "Alternative" : "Attempt"} {a.attempt} · {a.source}
-        {a.ms ? <span className="muted"> · {a.ms} ms</span> : null}
-      </button>
-      {open && (
-        <div className="attempt-body">
-          {a.reasoning && <p className="quote">“{a.reasoning}”</p>}
-          {a.arrangement && (
-            <p className="mono">
-              {Object.entries(a.arrangement).map(([c, v]) => `${c}: ${v.wall} @ ${Math.round(v.offset)}in`).join(" · ")}
-            </p>
-          )}
-          {a.problems.length > 0 ? (
-            <ul className="problems">{a.problems.map((p) => <li key={p}>✗ {p}</li>)}</ul>
-          ) : (
-            <p className="pass">✓ Passed independent spatial verification</p>
-          )}
-          {a.critique && (
-            <details>
-              <summary>Critique sent back to the model</summary>
-              <pre className="critique">{a.critique}</pre>
-            </details>
-          )}
-        </div>
+      <span className="attempt-mark">{a.accepted ? "✓" : "✗"}</span>
+      {a.stage === "alternatives" ? "Alt" : "Try"} {a.attempt} · {a.source}
+      {a.problems.length > 0 && <span className="problems"> — {a.problems.join("; ")}</span>}
+      {a.reasoning && a.accepted && <span className="muted"> — “{a.reasoning}”</span>}
+      {a.critique && (
+        <details>
+          <summary>Critique sent to the model</summary>
+          <pre className="critique">{a.critique}</pre>
+        </details>
       )}
     </li>
   );
 }
 
-/** Step-by-step view of how the design was produced (AI + deterministic). */
+/** One line per pipeline step; tap a step for the detail behind it. */
 export default function ReasoningPanel({ steps }) {
+  const [open, setOpen] = useState(null);
   if (!steps || steps.length === 0) return <p className="muted">Generate a design to see the reasoning.</p>;
   return (
     <ol className="reasoning" data-testid="reasoning">
-      {steps.map((s, i) => (
-        <li key={s.stage} className={`step step-${s.stage}`}>
-          <div className="step-head">
-            <span className="step-num">{String(i + 1).padStart(2, "0")}</span>
-            <strong>{s.title}</strong>
-            <span className={`actor actor-${s.actor}`}>{ACTOR_LABEL[s.actor] || s.actor}</span>
-          </div>
-          <p className="step-summary">{s.summary}</p>
-          {s.said && <p className="quote">“{s.said}”</p>}
-          {s.details?.length > 0 && (
-            <ul className="step-details">{s.details.map((d) => <li key={d}>{d}</li>)}</ul>
-          )}
-          {s.attempts?.length > 0 && (
-            <ul className="attempts">{s.attempts.map((a) => <Attempt key={`${a.stage}-${a.attempt}-${a.source}`} a={a} />)}</ul>
-          )}
-        </li>
-      ))}
+      {steps.map((s) => {
+        const isOpen = open === s.stage;
+        const hasMore = s.summary || s.said || s.details?.length || s.attempts?.length;
+        return (
+          <li key={s.stage} className={`step ${isOpen ? "open" : ""}`}>
+            <button type="button" className="step-line" aria-expanded={isOpen} disabled={!hasMore}
+              onClick={() => setOpen(isOpen ? null : s.stage)}>
+              <span className={`actor actor-${s.actor}`}>{ACTOR_LABEL[s.actor] || s.actor}</span>
+              <span className="step-text"><strong>{s.title}</strong> <span>{s.short || s.summary}</span></span>
+              {hasMore ? <span className="chev" aria-hidden="true">{isOpen ? "−" : "+"}</span> : null}
+            </button>
+            {isOpen && (
+              <div className="step-body">
+                {s.said && <p className="quote">“{s.said}”</p>}
+                {s.summary && <p className="muted small">{s.summary}</p>}
+                {s.details?.length > 0 && <ul className="step-details">{s.details.map((d) => <li key={d}>{d}</li>)}</ul>}
+                {s.attempts?.length > 0 && (
+                  <ul className="attempts">
+                    {s.attempts.map((a) => <Attempt key={`${a.stage}-${a.attempt}-${a.source}`} a={a} />)}
+                  </ul>
+                )}
+              </div>
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
 }

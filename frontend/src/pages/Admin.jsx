@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import { money } from "../lib/format.js";
+import { ROLE_LABELS } from "../lib/personas.js";
 
 const FILTERS = ["submitted", "approved", "rejected", "draft", ""];
 
@@ -69,6 +70,7 @@ export default function Admin() {
                 <td>
                   <div className="actions">
                   <Link className="btn small" to={`/planner?project=${p.id}`}>Inspect</Link>
+                  <button type="button" className="btn small" onClick={() => act(() => api.downloadProjectReport(p.id))}>PDF</button>
                   {p.status === "submitted" && (
                     <>
                       <input aria-label={`Note for ${p.name}`} placeholder="Note (optional)" value={notes[p.id] || ""}
@@ -96,8 +98,7 @@ export default function Admin() {
                 <td>
                   <select aria-label={`Role for ${u.email}`} value={u.role} disabled={u.id === user.id}
                     onChange={(e) => act(() => api.adminSetRole(u.id, e.target.value))}>
-                    <option value="user">user</option>
-                    <option value="admin">admin</option>
+                    {Object.entries(ROLE_LABELS).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                   </select>
                 </td>
               </tr>

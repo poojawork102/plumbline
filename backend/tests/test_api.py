@@ -64,9 +64,16 @@ def test_design_includes_reasoning_steps(client):
     assert "256 possible bundles" in select["details"][0]
     verify = d["reasoning"][3]
     assert "WaterSense" in verify["summary"]
+    # every step has a one-line summary for the compact UI
+    assert all(s["short"] for s in d["reasoning"])
+    # offline, the design is still explained from the verified numbers
+    narrate = d["reasoning"][-1]
+    assert narrate["actor"] == "solver" and narrate["said"]
+    assert d["rationale"]["source"] == "solver" and d["rationale"]["headline"]
     assert d["reasoning"][2]["attempts"], "arrange step must expose the attempt trace"
     # offline: the summary must not blame Gemini or claim the verifier caught anything
     assert d["reasoning"][2]["summary"].startswith("No LLM available")
+    assert all(a["source"] != "gemini" for a in d["reasoning"][2]["attempts"])
     assert "0 rejected" in d["reasoning"][2]["summary"]
 
 
@@ -132,7 +139,7 @@ def test_drag_edit_missing_wall_is_400(client):
 def test_register_login_me(client):
     h = _register(client)
     me = client.get("/api/auth/me", headers=h).get_json()["user"]
-    assert me["email"] == "user@plumbline.test" and me["role"] == "user"
+    assert me["email"] == "user@plumbline.test" and me["role"] == "homeowner"
     assert "password_hash" not in me
 
 
@@ -143,9 +150,22 @@ def test_register_validation_and_duplicates(client):
     assert client.post("/api/auth/register", json={"email": "A@B.co", "password": "longenough"}).status_code == 409
 
 
-def test_register_cannot_self_assign_admin(client):
-    r = client.post("/api/auth/register", json={"email": "x@y.co", "password": "longenough", "role": "admin"})
-    assert r.get_json()["user"]["role"] == "user"
+def test_register_picks_a_self_service_role(client):
+    r = client.post("/api/auth/register", json={"email": "a@y.co", "password": "longenough", "role": "architect"})
+    assert r.status_code == 201 and r.get_json()["user"]["role"] == "architect"
+
+
+@pytest.mark.parametrize("role", ["admin", "kohler", "superuser"])
+def test_register_cannot_self_assign_privileged_roles(client, role):
+    r = client.post("/api/auth/register", json={"email": "x@y.co", "password": "longenough", "role": role})
+    assert r.status_code == 400
+
+
+def test_legacy_user_role_reads_as_homeowner(client):
+    u = db.create_user("old@x.co", "longenough")
+    with db.engine().begin() as c:
+        c.execute(db.users.update().where(db.users.c.id == u["id"]).values(role="user"))
+    assert db.get_user(u["id"])["role"] == "homeowner"
 
 
 def test_bad_credentials_and_tokens(client):
@@ -245,9 +265,11 @@ def test_admin_role_management_and_last_admin_guard(client):
     admin_id = next(u["id"] for u in users if u["role"] == "admin")
 
     assert client.patch(f"/api/admin/users/{admin_id}", headers=admin,
-                        json={"role": "user"}).status_code == 409
+                        json={"role": "homeowner"}).status_code == 409
     assert client.patch(f"/api/admin/users/{uid}", headers=admin,
                         json={"role": "superuser"}).status_code == 400
+    r = client.patch(f"/api/admin/users/{uid}", headers=admin, json={"role": "kohler"})
+    assert r.get_json()["user"]["role"] == "kohler"
     r = client.patch(f"/api/admin/users/{uid}", headers=admin, json={"role": "admin"})
     assert r.get_json()["user"]["role"] == "admin"
     # role is re-read per request: the promoted user can now reach admin routes
@@ -312,3 +334,76 @@ def test_admin_seeding_survives_a_concurrent_worker(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "select", real_select)
     assert db.authenticate("race@plumbline.test", "race-pass-123")["role"] == "admin"
     db.init_db("sqlite://")
+
+
+
+# ------------------------------------------------------------------ report --
+def _pdf_text(raw):
+    """Decompress the PDF's content streams so tests can search the text."""
+    import re
+    import zlib
+    out = []
+    for m in re.finditer(rb"stream\r?\n(.*?)\r?\nendstream", raw, re.S):
+        try:
+            out.append(zlib.decompress(m.group(1)).decode("latin-1"))
+        except zlib.error:
+            pass
+    return "\n".join(out)
+
+
+def _report(client, d, headers=None, **extra):
+    body = {"design": d, "selected_option": "Option A", "edits": {}}
+    body.update(extra)
+    return client.post("/api/report", json=body, headers=headers or {})
+
+
+def test_report_is_a_pdf_and_tiers_by_role(client):
+    d = _design(client)
+    anon = _report(client, d)
+    assert anon.status_code == 200 and anon.mimetype == "application/pdf"
+    assert anon.data.startswith(b"%PDF")
+    assert "homeowner.pdf" in anon.headers["Content-Disposition"]
+    home = _pdf_text(anon.data)
+    assert "HOMEOWNER SUMMARY" in home and "PLACEMENT SCHEDULE" not in home
+
+    arch = _register(client, "arch@x.co")
+    db.set_role(db.authenticate("arch@x.co", "user-pass-123")["id"], "architect")
+    text = _pdf_text(_report(client, d, arch).data)
+    assert "ARCHITECT REPORT" in text and "PLACEMENT SCHEDULE" in text
+    assert "AI PIPELINE" not in text
+
+    admin = _login(client, "admin@plumbline.test", "admin-pass-123")
+    text = _pdf_text(_report(client, d, admin).data)
+    assert "KOHLER TEAM REPORT" in text and "AI PIPELINE" in text and "BUNDLE SELECTION" in text
+
+
+def test_report_recomputes_numbers_and_flags_broken_layouts(client):
+    d = _design(client)
+    tampered = dict(d, metrics=dict(d["metrics"], total_cost=1))
+    bad = [dict(p) for p in d["options"][0]["placements"]]
+    for p in bad:
+        if p["category"] != "faucet":
+            p.update(x=40, y=40)
+    text = _pdf_text(_report(client, tampered, edits={"Option A": {"placements": bad}}).data)
+    assert "Not valid" in text and "overlaps" in text
+    real_cost = sum(p.get("price_inr", 0) for p in d["bundle"])
+    import report
+    assert report._money(real_cost, "INR") in text          # catalogue price, not the tampered 1
+    assert "Rs 1 " not in text
+
+
+def test_report_rejects_bad_input(client):
+    assert client.post("/api/report", json={}).status_code == 400
+    d = _design(client)
+    d_bad = dict(d, bundle=[dict(d["bundle"][0], id="FAKE")] + d["bundle"][1:])
+    assert _report(client, d_bad).status_code == 400
+
+
+def test_saved_project_report_is_owner_scoped(client):
+    d = _design(client)
+    alice, bob = _register(client, "alice@x.co"), _register(client, "bob@x.co")
+    p = _save(client, alice, d)
+    r = client.get(f"/api/projects/{p['id']}/report", headers=alice)
+    assert r.status_code == 200 and r.data.startswith(b"%PDF")
+    assert "My-bath" in r.headers["Content-Disposition"]
+    assert client.get(f"/api/projects/{p['id']}/report", headers=bob).status_code == 404
