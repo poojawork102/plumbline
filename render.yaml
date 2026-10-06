@@ -1,0 +1,29 @@
+# Render Blueprint -- backend API as a persistent web service.
+# Render dashboard -> New -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: plumbline-api
+    runtime: python
+    rootDir: backend
+    plan: starter               # persistent instance (free plan sleeps when idle)
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --threads 4 --timeout 120
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: SECRET_KEY            # signs auth tokens
+        generateValue: true
+      - key: DATABASE_URL          # Neon connection string, keep ?sslmode=require
+        sync: false
+      - key: ALLOWED_ORIGINS       # e.g. https://plumbline.vercel.app (comma-separated)
+        sync: false
+      - key: ADMIN_EMAIL           # first authority account, created on boot
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: GEMINI_API_KEY        # optional -- app runs fully offline without it
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash

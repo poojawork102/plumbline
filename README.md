@@ -42,63 +42,91 @@ The self-correction trace is returned under `data.ai.trace` and rendered in the 
 
 ---
 
-## Quickstart
+## What's new — Kohler Lab feedback
 
-```bash
-git clone https://github.com/poojawork102/plumbline.git
-cd plumbline
+| Feedback | What shipped |
+|---|---|
+| Multiple layout options | Every generation returns **3 verified options** for the chosen products. Option A is the original propose → verify → repair → fallback loop; B and C come from one extra Gemini call (each proposal verified independently, rejects shown in the trace) with any empty slots filled by a deterministic enumerator that guarantees genuinely different wall assignments. |
+| Visible AI reasoning | A six-step **reasoning panel** (understand → select → arrange/verify/repair → independent verification → alternatives → narrate) built from what the pipeline actually did: the model's reading of the brief, how many of 256 bundles each gate removed, every proposal, the verifier's reasons and the exact critique sent back to the model. |
+| 3D rendering | Three.js view (lazy-loaded) with orbit/zoom/pan, real fixture heights from the catalogue, clearance zones, door swing and an automatic wall cut-away so fixtures stay visible from any angle. |
+| Drag-and-drop editing | Drag any fixture in the 2D plan (or focus it and use arrow keys / `R`); it snaps to the nearest wall. Every drop goes to `POST /api/layout/verify`, which rebuilds geometry from catalogue specs and runs the **same verifier the AI is held to**. Violations highlight in 2D and 3D. |
+| Admin / authority role | Email + password login with `user` and `admin` roles. Users submit designs for approval; admins review (approve/reject with a note), manage roles and see stats. The server re-verifies a layout before it can be submitted, so an authority never reviews a broken plan. |
+| Cloud save | Projects persist to **Neon Postgres** (SQLite locally). Re-open, rename, delete; editing an approved design sends it back to draft. |
 
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+EPA WaterSense checks and the verify–repair–fallback loop are unchanged and still gate every layout.
 
-cp .env.example .env            # add your Gemini key (optional)
-python app.py                   # http://localhost:5000
+---
+
+## Repository layout
+
+```
+backend/            Flask JSON API  → Render (persistent web service)
+  app.py            routes: design, layout verify, auth, projects, admin
+  ai_engine.py      Gemini loop: intent, arrange + repair, alternatives, narrate
+  solver.py         deterministic bundle selection (budget, 40% floor rule)
+  layout.py         geometry, verifier, option enumeration
+  reasoning.py      step-by-step reasoning shown in the UI
+  db.py / auth.py   Postgres (Neon) persistence, bearer-token auth + roles
+  tests/            pytest
+frontend/           React + Vite + Three.js → Vercel
+  src/components/   FloorPlan (drag/drop), Room3D, ReasoningPanel, OptionPicker
+  src/pages/        Planner, Projects, Admin, Login, Sustainability
+  src/__tests__/    Vitest + Testing Library
+render.yaml         Render blueprint for the API
+frontend/vercel.json  Vercel config (SPA rewrites, caching headers)
 ```
 
-Or use Make:
+The frontend calls the API over HTTPS at `VITE_API_URL`. Auth uses signed bearer tokens in the `Authorization` header (no cross-site cookies), and the API only accepts browser requests from `ALLOWED_ORIGINS`.
+
+---
+
+## Run locally
 
 ```bash
-make install
-make run
-make test
+# backend  → http://localhost:5000
+cd backend
+python -m venv venv && source venv/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env          # all optional; no key = offline mode
+python app.py
+
+# frontend → http://localhost:5173
+cd frontend
+npm install
+cp .env.example .env.local    # VITE_API_URL=http://localhost:5000
+npm run dev
 ```
 
-**The app runs with no API key.** Every page works offline — the AI stages degrade gracefully, they never crash. Confirm at:
+**The app runs with no API key and no database setup.** AI stages degrade to deterministic code, and storage falls back to a local SQLite file. Check what is live:
 
 ```
 GET /api/health
-→ {"status":"ok","gemini":"live","model":"gemini-3.6-flash","catalog":16}
+→ {"status":"ok","gemini":"live","model":"gemini-3.6-flash","catalog":16,"database":"postgresql"}
 ```
+
+Set `ADMIN_EMAIL` / `ADMIN_PASSWORD` to create the first admin account at startup. Self-registration always creates a plain user; admins promote others from the Admin console.
+
+---
+
+## Deploy
+
+1. **Neon** — create a project and copy the connection string (keep `?sslmode=require`). Tables are created automatically on first boot.
+2. **Render (API)** — *New → Blueprint* → pick this repo; `render.yaml` defines the `plumbline-api` web service (root `backend/`, gunicorn, health check `/api/health`). Fill in the prompted env vars:
+   `DATABASE_URL` (Neon), `ALLOWED_ORIGINS` (your Vercel URL, e.g. `https://plumbline.vercel.app`), `ADMIN_EMAIL`, `ADMIN_PASSWORD`, optionally `GEMINI_API_KEY`. `SECRET_KEY` is generated by Render. A `Procfile` is included for other hosts.
+3. **Vercel (frontend)** — import the repo, set **Root Directory = `frontend`** (Vite is detected; `vercel.json` adds SPA rewrites), and set `VITE_API_URL=https://<your-service>.onrender.com`. Redeploy after changing it, since it is baked in at build time.
+
+The blueprint uses Render's `starter` plan so the API stays warm (the free plan sleeps when idle; the UI shows a "waking up" message if it does).
 
 ---
 
 ## Tests
 
 ```bash
-python -m pytest tests/ -q
+make test            # backend: pytest (in-memory SQLite, LLM stubbed offline)
+make frontend-test   # frontend: vitest
 ```
 
-- **22 passing** — 18 solver/layout + 4 AI loop
-- The 4 AI-loop tests use a stubbed model — no API key or network needed
-- Tests prove the repair loop catches invalid layouts before they reach the user
-
----
-
-## Project structure
-
-```
-app.py              Flask routes + 7-stage design pipeline
-ai_engine.py        Gemini calls, constrained generation, verify→repair loop
-solver.py           Deterministic bundle selection (budget, water, theme)
-layout.py           Geometry, clearance envelopes, independent verifier
-intent_parser.py    Regex intent parser (offline fallback)
-catalog.json        16 products with real SKUs, flow rates, clearances
-templates/          Planner, sustainability dashboard, landing page, auth
-static/             CSS, JS, SVG favicon
-tests/              22 unit tests including stubbed-model AI loop tests
-docs/               Pitch deck, PRD, prompts documentation (PDF)
-```
+The backend tests stub the model to prove the loop: a deliberately bad first proposal is caught, critiqued and repaired; bad alternatives are dropped; drag-edits get the same verifier; roles and project ownership are enforced. CI (`.github/workflows/ci.yml`) runs both suites plus a production build on every PR.
 
 ---
 
@@ -126,7 +154,6 @@ Each extension below is a loader or config change — the solver and verifier do
 | Regional plumbing codes | Constants in `layout.py` → code profile | Clearances are data, not logic (IS 1172 / IBC / ADA) |
 | Multi-room / whole-home | `solve_bathroom_bundle()` per room | Solver is pure and stateless — parallelises trivially |
 | Dealer quote export | `/api/design` JSON payload | SKUs, prices and verified plan already in the response |
-| Layout A/B options | `arrange_with_repair()` at higher temperature | Verifier makes aggressive sampling safe |
 
 ---
 
@@ -135,7 +162,8 @@ Each extension below is a loader or config change — the solver and verifier do
 - Catalogue is a 16-product representative sample, not a live product feed
 - Rectangular rooms only; one fixed door position (bottom-left, 30-inch swing)
 - Water savings modelled from published ratings, not metered usage data
-- Project history is session-scoped; no database or multi-user authentication
+- Auth is email + password with signed tokens; no password reset, SSO or login rate limiting yet
+- The 3D view uses simplified fixture massing, not manufacturer CAD models
 
 ---
 

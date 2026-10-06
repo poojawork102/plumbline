@@ -18,3 +18,10 @@ env/
 
 .pytest_cache/
 .vscode/
+# Local SQLite database
+*.db
+
+# Frontend
+node_modules/
+frontend/dist/
+.vercel

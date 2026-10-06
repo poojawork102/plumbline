@@ -1,10 +1,22 @@
-.PHONY: install run test
+.PHONY: install run test frontend-install frontend-dev frontend-test frontend-build
 
 install:
-	pip install -r requirements.txt
+	pip install -r backend/requirements-dev.txt
 
 run:
-	python app.py
+	cd backend && python app.py
 
 test:
-	pytest
+	cd backend && python -m pytest -q
+
+frontend-install:
+	cd frontend && npm install
+
+frontend-dev:
+	cd frontend && npm run dev
+
+frontend-test:
+	cd frontend && npm test
+
+frontend-build:
+	cd frontend && npm run build
