@@ -407,3 +407,31 @@ def test_saved_project_report_is_owner_scoped(client):
     assert r.status_code == 200 and r.data.startswith(b"%PDF")
     assert "My-bath" in r.headers["Content-Disposition"]
     assert client.get(f"/api/projects/{p['id']}/report", headers=bob).status_code == 404
+
+
+
+def test_report_type_can_be_chosen_within_permissions(client):
+    d = _design(client)
+    # anonymous: homeowner and architect are free choices
+    r = _report(client, d, report_type="architect")
+    assert r.status_code == 200 and "architect.pdf" in r.headers["Content-Disposition"]
+    assert "ARCHITECT REPORT" in _pdf_text(r.data)
+    # ...but the Kohler team report needs a Kohler/admin sign-in
+    assert _report(client, d, report_type="kohler").status_code == 403
+    home = _register(client, "h@x.co")
+    assert _report(client, d, home, report_type="kohler").status_code == 403
+    assert _report(client, d, report_type="ceo").status_code == 400
+
+    admin = _login(client, "admin@plumbline.test", "admin-pass-123")
+    r = _report(client, d, admin, report_type="homeowner")
+    assert "HOMEOWNER SUMMARY" in _pdf_text(r.data)          # admins can pick a lighter one
+    assert "KOHLER TEAM REPORT" in _pdf_text(_report(client, d, admin, report_type="kohler").data)
+
+
+def test_project_report_type_query(client):
+    d = _design(client)
+    h = _register(client)
+    p = _save(client, h, d)
+    r = client.get(f"/api/projects/{p['id']}/report?type=architect", headers=h)
+    assert r.status_code == 200 and "architect.pdf" in r.headers["Content-Disposition"]
+    assert client.get(f"/api/projects/{p['id']}/report?type=kohler", headers=h).status_code == 403

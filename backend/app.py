@@ -325,8 +325,24 @@ def _register_routes(app):
                         "features": feats, "summary": describe_layout(feats)})
 
     # ---------------------------------------------------------- report --
-    def _pdf_response(design, selected, edits, user, name):
-        role = user["role"] if user else "homeowner"
+    REPORT_TYPES = ("homeowner", "architect", "kohler")
+
+    def _report_type(requested, user):
+        """Anyone may pick the homeowner or architect report; the Kohler team
+        report needs a Kohler or admin account. No choice -> the user's own."""
+        own = user["role"] if user else "homeowner"
+        default = "kohler" if own in ("kohler", "admin") else own
+        kind = requested or default
+        if kind not in REPORT_TYPES:
+            return None, _err(f"report type must be one of: {', '.join(REPORT_TYPES)}")
+        if kind == "kohler" and own not in ("kohler", "admin"):
+            return None, _err("The Kohler team report needs a Kohler team sign-in", 403)
+        return kind, None
+
+    def _pdf_response(design, selected, edits, user, name, requested=None):
+        role, error = _report_type(requested, user)
+        if error:
+            return error
         try:
             pdf = report.build(design, selected, edits, role=role)
         except report.ReportError as exc:
@@ -342,7 +358,8 @@ def _register_routes(app):
         (anonymous visitors get the homeowner summary)."""
         body = request.get_json(silent=True) or {}
         return _pdf_response(body.get("design"), body.get("selected_option"),
-                             body.get("edits"), auth.current_user(), "design")
+                             body.get("edits"), auth.current_user(), "design",
+                             requested=body.get("report_type"))
 
     @app.route("/api/projects/<int:pid>/report")
     @auth.require_auth
@@ -352,7 +369,7 @@ def _register_routes(app):
             return _err("Project not found", 404)
         d = project["data"]
         return _pdf_response(d.get("design"), d.get("selected_option"), d.get("edits"),
-                             g.user, project["name"])
+                             g.user, project["name"], requested=request.args.get("type"))
 
     # ------------------------------------------------------------ auth --
     @app.route("/api/auth/register", methods=["POST"])

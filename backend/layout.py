@@ -100,13 +100,15 @@ def _candidates(fx, width_in, length_in, walls=None):
 
 
 # ---------------------------------------------------------------- placement --
-def place_fixtures(width_in, length_in, fixtures, walls=None, max_nodes=MAX_NODES):
+def place_fixtures(width_in, length_in, fixtures, walls=None, max_nodes=MAX_NODES, strict=False):
     """Find a valid layout or return None.
 
     fixtures: list of dicts with keys
         category ('shower'|'toilet'|'vanity'), width, depth, side_min, front_min
     walls: optional {category: wall} pinning a fixture to one wall (used to
         enumerate genuinely different layout options).
+    strict: also forbid two clearance zones from overlapping each other, so
+        every fixture has its own clear floor (no shared standing space).
     Returns a list of placement dicts (same order as PLACE_ORDER) or None.
     """
     W, L = float(width_in), float(length_in)
@@ -120,6 +122,8 @@ def place_fixtures(width_in, length_in, fixtures, walls=None, max_nodes=MAX_NODE
         for p in placed:
             if (overlaps(c["foot"], p["foot"]) or overlaps(c["env"], p["foot"])
                     or overlaps(c["foot"], p["env"])):
+                return False
+            if strict and overlaps(c["env"], p["env"]):
                 return False
         return True
 
@@ -184,21 +188,41 @@ def enumerate_layouts(width_in, length_in, fixtures, limit=3, exclude=()):
     def distance(a, b):
         return sum(x != y for x, y in zip(a, b))
 
-    # Pass 1 insists each new option moves at least two fixtures to different
-    # walls than every option already chosen; pass 2 relaxes that to one.
-    for min_dist in (2, 1):
+    # Strict passes first: every fixture keeps its own clear floor. Only when
+    # the room cannot offer enough of those do we accept options whose
+    # clearance zones share space. Within each, prefer options that move at
+    # least two fixtures to different walls, then one.
+    for strict, min_dist in ((True, 2), (True, 1), (False, 2), (False, 1)):
         for ws in assignments:
             if len(out) >= limit:
                 return out
             sig = tuple(sorted(zip(cats, ws)))
             if any(distance(sig, t) < min_dist for t in taken):
                 continue
-            placed = place_fixtures(width_in, length_in, fixtures,
-                                    walls=dict(zip(cats, ws)), max_nodes=OPTION_NODES)
+            placed = place_fixtures(width_in, length_in, fixtures, walls=dict(zip(cats, ws)),
+                                    max_nodes=OPTION_NODES, strict=strict)
             if placed:
                 taken.append(sig)
                 out.append(placed)
     return out
+
+
+def shared_clearances(placements):
+    """Pairs of fixtures whose clearance zones overlap (allowed, but worse)."""
+    floor = [p for p in placements if p["category"] != "faucet" and p.get("clearance")]
+    out = []
+    for i, a in enumerate(floor):
+        for b in floor[i + 1:]:
+            ca, cb = a["clearance"], b["clearance"]
+            if overlaps((ca["x"], ca["y"], ca["w"], ca["d"]), (cb["x"], cb["y"], cb["w"], cb["d"])):
+                out.append(f"{a['category']} and {b['category']} clearance zones overlap")
+    return out
+
+
+def place_preferring_strict(width_in, length_in, fixtures):
+    """Best layout: separate clear floor for every fixture if the room allows it."""
+    return (place_fixtures(width_in, length_in, fixtures, strict=True)
+            or place_fixtures(width_in, length_in, fixtures))
 
 
 def layout_features(placements, width_in, length_in):
@@ -220,6 +244,7 @@ def layout_features(placements, width_in, length_in):
         "toilet_screened": not toilet_facing_door,
         "wet_zone_grouped": wet_grouped,
         "walls": {c: p["side"] for c, p in floor.items()},
+        "clearances_shared": bool(shared_clearances(placements)),
     }
 
 
@@ -235,6 +260,8 @@ def describe_layout(features):
     bits.append("The toilet is out of the direct sightline from the door."
                 if features["toilet_screened"] else
                 "The toilet faces the door, which is the main trade-off of this option.")
+    if features.get("clearances_shared"):
+        bits.append("The room is tight, so two fixtures share some clear floor.")
     bits.append(f"{features['open_floor_pct']}% of the floor stays open.")
     return " ".join(bits)
 

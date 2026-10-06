@@ -13,3 +13,19 @@ export const REPORT_DESCRIPTIONS = {
 };
 
 export const SELF_SERVICE_ROLES = ["homeowner", "architect"];
+
+export const REPORT_TYPES = [
+  { id: "homeowner", label: "Homeowner", blurb: "Cost, water saved, products, plan" },
+  { id: "architect", label: "Architect / designer", blurb: "+ dimensions, clearances, placement schedule" },
+  { id: "kohler", label: "Kohler team", blurb: "+ SKUs, selection maths, AI trace" },
+];
+
+/** The report a user gets by default, and whether they may pick the Kohler one. */
+export function canUseKohlerReport(role) {
+  return role === "kohler" || role === "admin";
+}
+
+export function defaultReportType(role) {
+  if (canUseKohlerReport(role)) return "kohler";
+  return role === "architect" ? "architect" : "homeowner";
+}

@@ -20,7 +20,7 @@ import itertools
 import json
 import os
 
-from layout import mount_faucet, place_fixtures, verify_layout
+from layout import mount_faucet, place_preferring_strict, verify_layout
 
 CATALOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "catalog.json")
 
@@ -142,7 +142,7 @@ class _LayoutSearch:
             if self.attempts >= MAX_LAYOUT_ATTEMPTS:
                 return "limit"
             self.attempts += 1
-            self.cache[key] = place_fixtures(self.W, self.L, [_fx(p) for p in floor])
+            self.cache[key] = place_preferring_strict(self.W, self.L, [_fx(p) for p in floor])
         raw = self.cache[key]
         if raw is None:
             return None

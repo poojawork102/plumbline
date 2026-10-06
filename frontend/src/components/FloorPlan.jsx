@@ -46,9 +46,14 @@ function Detail({ p }) {
 /** Labels sit in the clear floor just in front of the fixture, so shallow
  * fixtures (a 5in-deep mirror vanity) never clip their own label. */
 export function labelPosition(p, fs) {
-  const [nx, ny] = { top: [0, 1], bottom: [0, -1], left: [1, 0], right: [-1, 0] }[p.side] || [0, 0];
-  const reach = (nx ? p.w : p.d) / 2 + fs * 0.9;
-  return { x: p.x + p.w / 2 + nx * reach, y: p.y + p.d / 2 + ny * reach + fs * 0.2 };
+  const gap = fs * 0.5;
+  const cx = p.x + p.w / 2;
+  const cy = p.y + p.d / 2 + fs * 0.2;
+  // side walls: anchor the text's near end so it never spills back onto the fixture
+  if (p.side === "left") return { x: p.x + p.w + gap, y: cy, textAnchor: "start" };
+  if (p.side === "right") return { x: p.x - gap, y: cy, textAnchor: "end" };
+  if (p.side === "bottom") return { x: cx, y: p.y - gap, textAnchor: "middle" };
+  return { x: cx, y: p.y + p.d + gap + fs * 0.6, textAnchor: "middle" };   // top
 }
 
 /**
@@ -193,7 +198,7 @@ export default function FloorPlan({ room, placements, fixtures, invalid = new Se
           <rect className="fp-fixture" x={p.x} y={p.y} width={p.w} height={p.d}
             style={{ fill: THEME_COLORS[p.category] }} />
           <g transform={`matrix(${localMatrix(p).join(" ")})`}><Detail p={p} /></g>
-          <text className="fp-label" fontSize={fs * 0.62} {...labelPosition(p, fs)} textAnchor="middle">
+          <text className="fp-label" fontSize={fs * 0.62} {...labelPosition(p, fs)}>
             {p.category.toUpperCase()}
           </text>
         </g>

@@ -87,3 +87,29 @@ describe("report download", () => {
     await expect(downloadFile("/api/report", { method: "POST", body: {} })).rejects.toMatchObject({ message: "A valid design is needed for a report" });
   });
 });
+
+describe("ReportPicker", () => {
+  async function renderPicker(role) {
+    const { AuthProvider } = await import("../lib/auth.jsx");
+    const ReportPicker = (await import("../components/ReportPicker.jsx")).default;
+    const onDownload = vi.fn().mockResolvedValue("plumbline-design-x.pdf");
+    if (role) {
+      setToken("t");
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ user: { id: 1, email: "a@b.c", role } }) }));
+    }
+    render(<AuthProvider><ReportPicker onDownload={onDownload} /></AuthProvider>);
+    return onDownload;
+  }
+
+  it("anonymous users choose homeowner or architect; Kohler is locked", async () => {
+    const onDownload = await renderPicker(null);
+    const radios = screen.getAllByRole("radio");
+    expect(radios.map((r) => r.value)).toEqual(["homeowner", "architect", "kohler"]);
+    expect(radios[0]).toBeChecked();
+    expect(radios[2]).toBeDisabled();
+    fireEvent.click(radios[1]);
+    fireEvent.click(screen.getByRole("button", { name: "Download PDF report" }));
+    expect(onDownload).toHaveBeenCalledWith("architect");
+    expect(await screen.findByText("Downloaded plumbline-design-x.pdf")).toBeInTheDocument();
+  });
+});

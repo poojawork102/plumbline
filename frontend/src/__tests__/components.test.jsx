@@ -152,6 +152,9 @@ it("labels sit in front of the fixture, inside the room", () => {
   const vanity = { side: "right", x: 91, y: 40, w: 5, d: 40 };
   const pos = labelPosition(vanity, 4);
   expect(pos.x).toBeLessThan(vanity.x);              // pushed into the room, away from the wall
+  expect(pos.textAnchor).toBe("end");                // text grows away from the fixture
+  expect(labelPosition({ side: "left", x: 0, y: 40, w: 5, d: 40 }, 4)).toMatchObject({ textAnchor: "start" });
+  expect(labelPosition({ side: "left", x: 0, y: 40, w: 5, d: 40 }, 4).x).toBeGreaterThan(5);
   expect(labelPosition({ side: "top", x: 0, y: 0, w: 20, d: 28 }, 4).y).toBeGreaterThan(28);
 });
 
