@@ -25,7 +25,7 @@ import re
 import time
 
 from dotenv import load_dotenv
-from flask import Flask, Response, g, jsonify, request
+from flask import Flask, Response, abort, g, jsonify, request, send_from_directory
 from flask_cors import CORS
 
 load_dotenv()
@@ -73,7 +73,36 @@ def create_app(database_url=None, secret_key=None):
 
     db.init_db(database_url)
     _register_routes(app)
+    _register_frontend(app)
     return app
+
+
+# --------------------------------------------------------------- frontend --
+# Locally, `python run.py` builds the React app into frontend/dist and this
+# serves it from the same origin as the API: one process, one port, no CORS.
+# On Render frontend/dist does not exist, so the API stays JSON-only and the
+# frontend keeps deploying to Vercel exactly as before.
+FRONTEND_DIST = os.path.abspath(os.environ.get(
+    "FRONTEND_DIST",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend", "dist")))
+
+
+def _register_frontend(app):
+    index = os.path.join(FRONTEND_DIST, "index.html")
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def spa(path):
+        if path.startswith("api/") or path == "api":
+            abort(404)
+        if not os.path.isfile(index):
+            return jsonify({"service": "plumbline-api", "docs": "/api/health",
+                            "frontend": "not built -- run `python run.py` from the repo root"})
+        target = os.path.join(FRONTEND_DIST, path)
+        if path and os.path.isfile(target):
+            return send_from_directory(FRONTEND_DIST, path)
+        # Client-side routes (/planner, /admin, ...) all boot from index.html.
+        return send_from_directory(FRONTEND_DIST, "index.html")
 
 
 # ----------------------------------------------------------------- helpers --
@@ -173,10 +202,6 @@ def _can_access(project, user):
 
 # ------------------------------------------------------------------ routes --
 def _register_routes(app):
-
-    @app.route("/")
-    def root():
-        return jsonify({"service": "plumbline-api", "docs": "/api/health"})
 
     @app.route("/api/health")
     def health():

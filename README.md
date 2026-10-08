@@ -77,29 +77,43 @@ frontend/           React + Vite + Three.js → Vercel
   src/pages/        Planner, Projects, Admin, Login, Sustainability
   src/__tests__/    Vitest + Testing Library
 render.yaml         Render blueprint for the API
+run.py              one-command local runner (build + serve on :5000)
 frontend/vercel.json  Vercel config (SPA rewrites, caching headers)
 ```
 
-The frontend calls the API over HTTPS at `VITE_API_URL`. Auth uses signed bearer tokens in the `Authorization` header (no cross-site cookies), and the API only accepts browser requests from `ALLOWED_ORIGINS`.
+In production the frontend calls the API over HTTPS at `VITE_API_URL`; locally it is served from the same origin by `run.py`. Auth uses signed bearer tokens in the `Authorization` header (no cross-site cookies), and the API only accepts browser requests from `ALLOWED_ORIGINS`.
 
 ---
 
-## Run locally
+## Run locally — one command
+
+Needs **Python 3.10+** and **Node.js 18+**.
 
 ```bash
-# backend  → http://localhost:5000
-cd backend
-python -m venv venv && source venv/bin/activate
-pip install -r requirements-dev.txt
-cp .env.example .env          # all optional; no key = offline mode
-python app.py
-
-# frontend → http://localhost:5173
-cd frontend
-npm install
-cp .env.example .env.local    # VITE_API_URL=http://localhost:5000
-npm run dev
+git clone https://github.com/poojawork102/plumbline.git
+cd plumbline
+python run.py                  # → http://localhost:5000 opens in your browser
 ```
+
+`run.py` does every setup step that is still needed, then starts **one server** that serves both the app and the API:
+
+1. installs missing Python packages (`backend/requirements.txt`)
+2. creates `backend/.env` on first run — add `GEMINI_API_KEY` there for live AI
+3. installs frontend packages (`npm ci`) when needed
+4. rebuilds the React app only when its source has changed
+5. starts Flask on `:5000`, serving the built app and `/api/*` from the same origin (no CORS, no second terminal)
+
+Ctrl+C stops everything.
+
+| Command | Use it for |
+|---|---|
+| `python run.py` | Demo / normal use — one port, production build |
+| `python run.py --dev` | Frontend work — Vite hot reload on `:5173`, API proxied to `:5000`, still one terminal |
+| `python run.py --port 8000` | Port 5000 is taken |
+| `python run.py --rebuild` | Force a fresh frontend build |
+| `python run.py --no-browser` | Don't open a browser tab |
+
+Use a virtual environment if you prefer (`python -m venv venv`, activate it, then `python run.py`).
 
 **The app runs with no API key and no database setup.** AI stages degrade to deterministic code, and storage falls back to a local SQLite file. Check what is live:
 

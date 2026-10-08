@@ -1,4 +1,10 @@
-.PHONY: install run test frontend-install frontend-dev frontend-test frontend-build
+.PHONY: start dev install run test frontend-install frontend-dev frontend-test frontend-build
+
+start:
+	python run.py
+
+dev:
+	python run.py --dev
 
 install:
 	pip install -r backend/requirements-dev.txt

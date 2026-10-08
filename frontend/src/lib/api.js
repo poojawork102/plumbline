@@ -1,6 +1,8 @@
-// Thin client for the Flask API on Render. All calls go over HTTPS in
-// production: VITE_API_URL is baked in at build time on Vercel.
-export const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/+$/, "");
+// Thin client for the Flask API. In production VITE_API_URL (the Render URL)
+// is baked in at build time on Vercel. Locally it is unset: requests go to the
+// same origin -- Flask serves the built app (`python run.py`), or Vite proxies
+// /api to Flask (`python run.py --dev`).
+export const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
 const TOKEN_KEY = "plumbline_token";
 
